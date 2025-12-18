@@ -35,6 +35,10 @@
   - 否则使用 `xclip` / `xsel`
 - Windows: 使用 PowerShell 读取剪贴板图片
 
+### code-server 说明
+
+在 code-server（浏览器版 VS Code）中，扩展会优先使用 VS Code 的粘贴数据（paste `DataTransfer`）来获取“客户端剪贴板”的图片数据并上传；因此通常不需要在服务器上安装 `wl-paste/xclip/pngpaste` 等取图工具。
+
 ## 本地开发
 
 在此目录打开 VS Code，按 `F5` 启动 Extension Development Host，然后在新的窗口里打开 Markdown 文件测试粘贴上传流程。

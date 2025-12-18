@@ -9,6 +9,8 @@ const https = require("https");
 const core = require("./core");
 
 function activate(context) {
+  registerPasteProvider(context);
+
   const updateContextKey = () => {
     const config = vscode.workspace.getConfiguration("lskyUpload");
     const enabled = !!config.get("enablePasteInterceptor", true);
@@ -68,7 +70,10 @@ function activate(context) {
         return;
       }
 
-      const clipboardImage = await getClipboardImageAsFile();
+      const clipboardImage =
+        vscode.env?.uiKind === vscode.UIKind?.Web
+          ? null
+          : await getClipboardImageAsFile();
       const clipboardImagePath = clipboardImage?.filePath ?? null;
 
       let uploadFilePath = clipboardImagePath;
@@ -269,6 +274,172 @@ function looksLikeImageFile(filePath) {
   return [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"].includes(ext);
 }
 
+function registerPasteProvider(context) {
+  const register = vscode.languages?.registerDocumentPasteEditProvider;
+  if (typeof register !== "function") return;
+
+  const provider = {
+    provideDocumentPasteEdits: async (document, ranges, dataTransfer) => {
+      const config = vscode.workspace.getConfiguration("lskyUpload");
+      const enabled = !!config.get("enablePasteInterceptor", true);
+      if (!enabled) return;
+
+      const baseUrl = String(config.get("baseUrl", "")).trim();
+      if (!baseUrl) return;
+
+      const image = await extractImageFromDataTransfer(dataTransfer);
+      if (!image) return;
+
+      const markdown = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: "Lsky Upload: uploading image…",
+          cancellable: false,
+        },
+        async () => {
+          const result = await uploadToLsky({
+            context,
+            baseUrl,
+            uploadPath: String(config.get("uploadPath", "/api/v1/upload")),
+            tokenSetting: String(config.get("token", "")),
+            useBearerToken: !!config.get("useBearerToken", true),
+            fileFieldName: String(config.get("fileFieldName", "file")),
+            strategyId: config.get("strategyId", null),
+            timeoutMs: Number(config.get("timeoutMs", 30000)),
+            responseMarkdownPath: String(
+              config.get("responseMarkdownPath", "data.links.markdown"),
+            ),
+            responseUrlPath: String(config.get("responseUrlPath", "data.links.url")),
+            markdownFallbackTemplate: String(
+              config.get("markdownFallbackTemplate", "![]({{url}})"),
+            ),
+            fileBuffer: image.buffer,
+            filenameHint: image.filename,
+          });
+          return result.markdown;
+        },
+      );
+
+      const PasteEdit = vscode.DocumentPasteEdit;
+      if (typeof PasteEdit === "function") {
+        const edit = new PasteEdit(markdown);
+        edit.label = "Upload image to Lsky";
+        return [edit];
+      }
+
+      return [{ insertText: markdown, label: "Upload image to Lsky" }];
+    },
+  };
+
+  context.subscriptions.push(
+    register(
+      [
+        { language: "markdown" },
+        { language: "mdx" },
+      ],
+      provider,
+    ),
+  );
+}
+
+async function extractImageFromDataTransfer(dataTransfer) {
+  if (!dataTransfer || typeof dataTransfer.get !== "function") return null;
+
+  const candidates = [
+    { mime: "image/png", fallbackFilename: "pasted-image.png" },
+    { mime: "image/jpeg", fallbackFilename: "pasted-image.jpg" },
+    { mime: "image/jpg", fallbackFilename: "pasted-image.jpg" },
+    { mime: "image/webp", fallbackFilename: "pasted-image.webp" },
+    { mime: "image/gif", fallbackFilename: "pasted-image.gif" },
+  ];
+
+  for (const candidate of candidates) {
+    const item = dataTransfer.get(candidate.mime);
+    if (!item) continue;
+
+    const fromFile = await tryReadDataTransferItemAsFile(item);
+    if (fromFile) return fromFile;
+
+    const fromValue = await tryReadDataTransferItemValue(item);
+    if (fromValue) {
+      return {
+        buffer: fromValue,
+        filename: candidate.fallbackFilename,
+      };
+    }
+  }
+
+  return null;
+}
+
+async function tryReadDataTransferItemAsFile(item) {
+  if (!item || typeof item.asFile !== "function") return null;
+  const file = item.asFile();
+  if (!file) return null;
+
+  const filename = String(file.name || "pasted-image");
+
+  if (file.uri && vscode.workspace?.fs?.readFile) {
+    const bytes = await vscode.workspace.fs.readFile(file.uri);
+    return { buffer: Buffer.from(bytes), filename };
+  }
+
+  if (typeof file.data === "function") {
+    const bytes = await file.data();
+    return { buffer: normalizeToBuffer(bytes), filename };
+  }
+
+  if (file.data !== undefined) {
+    const bytes = await file.data;
+    return { buffer: normalizeToBuffer(bytes), filename };
+  }
+
+  return null;
+}
+
+async function tryReadDataTransferItemValue(item) {
+  if (!item) return null;
+
+  if (item.value !== undefined) {
+    const v = await item.value;
+    return normalizeToBuffer(v);
+  }
+
+  if (typeof item.asString === "function") {
+    const s = await item.asString();
+    const fromDataUrl = parseImageDataUrl(s);
+    if (fromDataUrl) return fromDataUrl;
+  }
+
+  return null;
+}
+
+function normalizeToBuffer(value) {
+  if (!value) return null;
+  if (Buffer.isBuffer(value)) return value;
+  if (value instanceof Uint8Array) return Buffer.from(value);
+  if (value instanceof ArrayBuffer) return Buffer.from(new Uint8Array(value));
+  if (ArrayBuffer.isView(value)) return Buffer.from(new Uint8Array(value.buffer));
+  return null;
+}
+
+function parseImageDataUrl(text) {
+  const value = String(text || "").trim();
+  if (!value.startsWith("data:image/")) return null;
+  const comma = value.indexOf(",");
+  if (comma === -1) return null;
+
+  const meta = value.slice(0, comma);
+  const data = value.slice(comma + 1);
+  if (!/;base64$/i.test(meta)) return null;
+
+  try {
+    return Buffer.from(data, "base64");
+  } catch {
+    return null;
+  }
+}
+
 async function uploadToLsky(options) {
   const {
     context,
@@ -282,6 +453,7 @@ async function uploadToLsky(options) {
     responseMarkdownPath,
     responseUrlPath,
     markdownFallbackTemplate,
+    fileBuffer,
     filePath,
     filenameHint,
   } = options;
@@ -292,8 +464,11 @@ async function uploadToLsky(options) {
   const url = new URL(uploadPath, baseUrl);
   const client = url.protocol === "http:" ? http : https;
 
-  const fileBuffer = await fs.readFile(filePath);
-  const filename = filenameHint || path.basename(filePath) || "image.png";
+  const fileBufferResolved =
+    fileBuffer !== undefined && fileBuffer !== null
+      ? Buffer.from(fileBuffer)
+      : await fs.readFile(filePath);
+  const filename = filenameHint || (filePath ? path.basename(filePath) : null) || "image.png";
   const contentType = core.guessContentType(filename);
 
   const fields = [];
@@ -308,7 +483,7 @@ async function uploadToLsky(options) {
     fileFieldName,
     filename,
     contentType,
-    fileBuffer,
+    fileBuffer: fileBufferResolved,
   });
 
   const headers = {
