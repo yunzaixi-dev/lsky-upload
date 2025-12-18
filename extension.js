@@ -9,7 +9,19 @@ const https = require("https");
 const core = require("./core");
 
 function activate(context) {
-  registerPasteProvider(context);
+  const log = vscode.window.createOutputChannel("Lsky Upload");
+  log.appendLine("activated");
+
+  const safeRun = (label, fn) => {
+    try {
+      return fn();
+    } catch (error) {
+      log.appendLine(`activation error (${label}): ${errorToMessage(error)}`);
+      return undefined;
+    }
+  };
+
+  safeRun("registerPasteProvider", () => registerPasteProvider(context));
 
   const updateContextKey = () => {
     const config = vscode.workspace.getConfiguration("lskyUpload");
@@ -21,7 +33,7 @@ function activate(context) {
     );
   };
 
-  updateContextKey();
+  safeRun("updateContextKey", () => updateContextKey());
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((event) => {
@@ -338,6 +350,7 @@ function registerPasteProvider(context) {
         { language: "mdx" },
       ],
       provider,
+      {},
     ),
   );
 }
