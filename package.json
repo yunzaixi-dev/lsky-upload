@@ -1,0 +1,118 @@
+{
+  "name": "lsky-upload",
+  "displayName": "Lsky Upload",
+  "description": "Intercept Markdown image paste, upload to Lsky (兰空图床), and insert returned Markdown link.",
+  "version": "0.1.0",
+  "publisher": "yunzaixi-dev",
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onCommand:lskyUpload.pasteImage",
+    "onCommand:lskyUpload.setToken",
+    "onLanguage:markdown",
+    "onLanguage:mdx"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "lskyUpload.pasteImage",
+        "title": "Lsky Upload: Paste Image (Upload & Insert Markdown)"
+      },
+      {
+        "command": "lskyUpload.setToken",
+        "title": "Lsky Upload: Set Token (Secret Storage)"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "lskyUpload.pasteImage",
+          "when": "editorLangId == markdown || editorLangId == mdx",
+          "group": "9_cutcopypaste"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "lskyUpload.pasteImage",
+        "key": "ctrl+v",
+        "mac": "cmd+v",
+        "when": "editorTextFocus && !editorReadonly && (editorLangId == markdown || editorLangId == mdx) && lskyUpload.interceptorEnabled"
+      }
+    ],
+    "configuration": {
+      "title": "Lsky Upload",
+      "properties": {
+        "lskyUpload.enablePasteInterceptor": {
+          "type": "boolean",
+          "default": true,
+          "description": "Intercept paste in Markdown/MDX; if clipboard has no image, fall back to default paste."
+        },
+        "lskyUpload.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Lsky base URL, e.g. https://img.example.com"
+        },
+        "lskyUpload.uploadPath": {
+          "type": "string",
+          "default": "/api/v1/upload",
+          "description": "Upload API path. For Lsky Pro the default is usually /api/v1/upload."
+        },
+        "lskyUpload.token": {
+          "type": "string",
+          "default": "",
+          "description": "API token (not recommended; use 'Lsky Upload: Set Token' to store it in secret storage)."
+        },
+        "lskyUpload.useBearerToken": {
+          "type": "boolean",
+          "default": true,
+          "description": "Send token as 'Authorization: Bearer <token>'. If disabled, uses 'Authorization: <token>'."
+        },
+        "lskyUpload.fileFieldName": {
+          "type": "string",
+          "default": "file",
+          "description": "Multipart field name for the image file."
+        },
+        "lskyUpload.strategyId": {
+          "type": [
+            "number",
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Optional upload strategy id (strategy_id)."
+        },
+        "lskyUpload.timeoutMs": {
+          "type": "number",
+          "default": 30000,
+          "minimum": 1000,
+          "description": "Upload request timeout in milliseconds."
+        },
+        "lskyUpload.responseMarkdownPath": {
+          "type": "string",
+          "default": "data.links.markdown",
+          "description": "Dot-path to the Markdown string in the JSON response."
+        },
+        "lskyUpload.responseUrlPath": {
+          "type": "string",
+          "default": "data.links.url",
+          "description": "Dot-path to the URL string in the JSON response (used if Markdown is not present)."
+        },
+        "lskyUpload.markdownFallbackTemplate": {
+          "type": "string",
+          "default": "![]({{url}})",
+          "description": "Fallback template when responseMarkdownPath is missing. Variables: {{url}}, {{filename}}."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "node ./test/basic.test.js"
+  }
+}
