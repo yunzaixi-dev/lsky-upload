@@ -22,6 +22,7 @@
 - `lskyUpload.enablePasteInterceptor`: 是否拦截 `Ctrl/Cmd+V`（默认开启）
 - `lskyUpload.autoUploadPastedImages`: 是否自动上传本地图片引用（默认开启）
 - `lskyUpload.pastedImageMaxAgeMs`: 仅处理最近写入的图片文件（默认 15000ms）
+- `lskyUpload.deleteLocalPastedImages`: 上传替换成功后删除本地图片（默认开启）
 
 推荐做法：
 

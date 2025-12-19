@@ -333,6 +333,7 @@ function registerAutoUploadWatcher(context, log, suppressNextChange) {
     if (!baseUrl) return;
 
     const maxAgeMs = Number(config.get("pastedImageMaxAgeMs", 15000));
+    const deleteLocal = !!config.get("deleteLocalPastedImages", true);
     const matches = collectMarkdownImageLinks(event.contentChanges);
     if (!matches.length) return;
 
@@ -340,7 +341,11 @@ function registerAutoUploadWatcher(context, log, suppressNextChange) {
       const resolved = resolveLocalImagePath(doc, match.link);
       if (!resolved) continue;
 
-      const fileInfo = safeStatFile(resolved);
+      let fileInfo = safeStatFile(resolved);
+      if (!fileInfo) {
+        await waitForFile(resolved, 1500, 150);
+        fileInfo = safeStatFile(resolved);
+      }
       if (!fileInfo || !looksLikeImageFile(resolved)) continue;
 
       const ageMs = Date.now() - fileInfo.mtimeMs;
@@ -382,6 +387,9 @@ function registerAutoUploadWatcher(context, log, suppressNextChange) {
         suppressNextChange.add(docKey);
         await vscode.workspace.applyEdit(edit);
         log.debug(`auto-upload: replaced link for ${resolved}`);
+        if (deleteLocal) {
+          await tryDeleteLocalFile(resolved, log);
+        }
         break;
       } catch (error) {
         log.info(`auto-upload error: ${errorToMessage(error)}`);
@@ -463,6 +471,24 @@ function safeStatFile(filePath) {
   } catch {
     return null;
   }
+}
+
+async function tryDeleteLocalFile(filePath, log) {
+  try {
+    await fs.unlink(filePath);
+    log.debug(`auto-upload: deleted local file ${filePath}`);
+  } catch (error) {
+    log.info(`auto-upload: failed to delete ${filePath}: ${errorToMessage(error)}`);
+  }
+}
+
+async function waitForFile(filePath, timeoutMs, intervalMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (fsSync.existsSync(filePath)) return true;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  return false;
 }
 
 function toDocumentRange(document, offset, length) {

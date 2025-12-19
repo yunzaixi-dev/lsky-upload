@@ -127,6 +127,11 @@
           "minimum": 1000,
           "description": "Only auto-upload images whose mtime is within this window (milliseconds)."
         },
+        "lskyUpload.deleteLocalPastedImages": {
+          "type": "boolean",
+          "default": true,
+          "description": "Delete local pasted images after successful upload and replacement."
+        },
         "lskyUpload.debug": {
           "type": "boolean",
           "default": false,
