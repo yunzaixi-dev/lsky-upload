@@ -12,6 +12,9 @@ function activate(context) {
   const log = createLogger();
   log.info("activated");
 
+  const isWeb = vscode.env?.uiKind === vscode.UIKind?.Web;
+  void vscode.commands.executeCommand("setContext", "lskyUpload.isWeb", isWeb);
+
   const safeRun = (label, fn) => {
     try {
       return fn();
@@ -159,6 +162,22 @@ function activate(context) {
           }
         }
       }
+    }),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("lskyUpload.diagnose", async () => {
+      const config = vscode.workspace.getConfiguration("lskyUpload");
+      const isWeb = vscode.env?.uiKind === vscode.UIKind?.Web;
+      const info = [
+        `uiKind=${isWeb ? "web" : "desktop"}`,
+        `pasteProvider=${typeof vscode.languages?.registerDocumentPasteEditProvider === "function" ? "supported" : "unsupported"}`,
+        `interceptorEnabled=${config.get("enablePasteInterceptor", true)}`,
+        `baseUrlSet=${Boolean(String(config.get("baseUrl", "")).trim())}`,
+        `debug=${config.get("debug", false)}`,
+      ];
+      log.info(`diagnose: ${info.join(" ")}`);
+      vscode.window.showInformationMessage("Lsky Upload: Diagnose info logged.");
     }),
   );
 }

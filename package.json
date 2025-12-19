@@ -30,6 +30,10 @@
       {
         "command": "lskyUpload.setToken",
         "title": "Lsky Upload: Set Token (Secret Storage)"
+      },
+      {
+        "command": "lskyUpload.diagnose",
+        "title": "Lsky Upload: Diagnose"
       }
     ],
     "menus": {
@@ -46,7 +50,7 @@
         "command": "lskyUpload.pasteImage",
         "key": "ctrl+v",
         "mac": "cmd+v",
-        "when": "editorTextFocus && !editorReadonly && (editorLangId == markdown || editorLangId == mdx) && lskyUpload.interceptorEnabled"
+        "when": "editorTextFocus && !editorReadonly && (editorLangId == markdown || editorLangId == mdx) && lskyUpload.interceptorEnabled && !lskyUpload.isWeb"
       }
     ],
     "configuration": {
