@@ -8,6 +8,7 @@
   - 若剪贴板里是图片：上传后插入返回的 Markdown。
   - 若剪贴板里不是图片：自动回退到 VS Code 默认粘贴行为。
 - 支持将剪贴板文本识别为本地图片文件路径并上传（例如从文件管理器复制图片文件后粘贴）。
+- 支持自动识别 VS Code 生成的本地图片引用并上传（例如粘贴后产生 `![alt](image.png)`）。
 - Token 默认存入 VS Code Secret Storage（命令：`Lsky Upload: Set Token`）。
 
 ## 配置
@@ -19,6 +20,8 @@
 - `lskyUpload.responseMarkdownPath`: 默认 `"data.links.markdown"`
 - `lskyUpload.responseUrlPath`: 默认 `"data.links.url"`
 - `lskyUpload.enablePasteInterceptor`: 是否拦截 `Ctrl/Cmd+V`（默认开启）
+- `lskyUpload.autoUploadPastedImages`: 是否自动上传本地图片引用（默认开启）
+- `lskyUpload.pastedImageMaxAgeMs`: 仅处理最近写入的图片文件（默认 15000ms）
 
 推荐做法：
 

@@ -14,6 +14,7 @@ function activate(context) {
 
   const isWeb = vscode.env?.uiKind === vscode.UIKind?.Web;
   void vscode.commands.executeCommand("setContext", "lskyUpload.isWeb", isWeb);
+  const suppressNextChange = new Set();
 
   const safeRun = (label, fn) => {
     try {
@@ -25,6 +26,9 @@ function activate(context) {
   };
 
   safeRun("registerPasteProvider", () => registerPasteProvider(context, log));
+  safeRun("registerAutoUploadWatcher", () =>
+    registerAutoUploadWatcher(context, log, suppressNextChange),
+  );
 
   const updateContextKey = () => {
     const config = vscode.workspace.getConfiguration("lskyUpload");
@@ -308,6 +312,164 @@ function coerceSingleLocalFilePath(text) {
 function looksLikeImageFile(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   return [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"].includes(ext);
+}
+
+function registerAutoUploadWatcher(context, log, suppressNextChange) {
+  const disposable = vscode.workspace.onDidChangeTextDocument(async (event) => {
+    const doc = event.document;
+    if (!doc || doc.isClosed) return;
+    if (doc.languageId !== "markdown" && doc.languageId !== "mdx") return;
+
+    const docKey = doc.uri.toString();
+    if (suppressNextChange.has(docKey)) {
+      suppressNextChange.delete(docKey);
+      return;
+    }
+
+    const config = vscode.workspace.getConfiguration("lskyUpload");
+    if (!config.get("autoUploadPastedImages", true)) return;
+
+    const baseUrl = String(config.get("baseUrl", "")).trim();
+    if (!baseUrl) return;
+
+    const maxAgeMs = Number(config.get("pastedImageMaxAgeMs", 15000));
+    const matches = collectMarkdownImageLinks(event.contentChanges);
+    if (!matches.length) return;
+
+    for (const match of matches) {
+      const resolved = resolveLocalImagePath(doc, match.link);
+      if (!resolved) continue;
+
+      const fileInfo = safeStatFile(resolved);
+      if (!fileInfo || !looksLikeImageFile(resolved)) continue;
+
+      const ageMs = Date.now() - fileInfo.mtimeMs;
+      if (ageMs > maxAgeMs) {
+        log.debug(`auto-upload: skipped old file ${resolved}`);
+        continue;
+      }
+
+      const range = toDocumentRange(doc, match.rangeOffset, match.rangeLength);
+      if (!range) continue;
+
+      const currentText = doc.getText(range);
+      if (currentText !== match.raw) continue;
+
+      log.debug(`auto-upload: uploading ${resolved}`);
+      try {
+        const result = await uploadToLsky({
+          context,
+          baseUrl,
+          uploadPath: String(config.get("uploadPath", "/api/v1/upload")),
+          tokenSetting: String(config.get("token", "")),
+          useBearerToken: !!config.get("useBearerToken", true),
+          fileFieldName: String(config.get("fileFieldName", "file")),
+          strategyId: config.get("strategyId", null),
+          timeoutMs: Number(config.get("timeoutMs", 30000)),
+          responseMarkdownPath: String(
+            config.get("responseMarkdownPath", "data.links.markdown"),
+          ),
+          responseUrlPath: String(config.get("responseUrlPath", "data.links.url")),
+          markdownFallbackTemplate: String(
+            config.get("markdownFallbackTemplate", "![]({{url}})"),
+          ),
+          filePath: resolved,
+          filenameHint: path.basename(resolved),
+        });
+
+        const edit = new vscode.WorkspaceEdit();
+        edit.replace(doc.uri, range, result.markdown);
+        suppressNextChange.add(docKey);
+        await vscode.workspace.applyEdit(edit);
+        log.debug(`auto-upload: replaced link for ${resolved}`);
+        break;
+      } catch (error) {
+        log.info(`auto-upload error: ${errorToMessage(error)}`);
+        vscode.window.showErrorMessage(
+          `Lsky Upload: ${errorToMessage(error)}`,
+        );
+      }
+    }
+  });
+
+  context.subscriptions.push(disposable);
+}
+
+function collectMarkdownImageLinks(changes) {
+  const results = [];
+  const regex = /!\[[^\]]*]\(\s*([^)]+?)\s*\)/g;
+
+  for (const change of changes) {
+    const text = change.text || "";
+    if (!text.includes("![")) continue;
+
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      const raw = match[0];
+      const link = match[1];
+      if (!link || looksRemoteLink(link)) continue;
+
+      results.push({
+        raw,
+        link,
+        rangeOffset: change.rangeOffset + match.index,
+        rangeLength: raw.length,
+      });
+    }
+  }
+
+  return results;
+}
+
+function resolveLocalImagePath(document, link) {
+  if (document.uri.scheme !== "file") return null;
+  if (!document.uri.fsPath) return null;
+
+  const cleaned = normalizeMarkdownLink(link);
+  if (!cleaned) return null;
+
+  const baseDir = path.dirname(document.uri.fsPath);
+  if (path.isAbsolute(cleaned)) return cleaned;
+  return path.resolve(baseDir, cleaned);
+}
+
+function normalizeMarkdownLink(link) {
+  let value = String(link || "").trim();
+  if (!value) return null;
+
+  value = value.replace(/^<|>$/g, "");
+  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+    value = value.slice(1, -1);
+  }
+
+  const withoutQuery = value.split(/[?#]/)[0];
+  if (!withoutQuery) return null;
+  return withoutQuery;
+}
+
+function looksRemoteLink(link) {
+  const value = String(link || "").trim().toLowerCase();
+  return (
+    value.startsWith("http://") ||
+    value.startsWith("https://") ||
+    value.startsWith("data:") ||
+    value.startsWith("file:")
+  );
+}
+
+function safeStatFile(filePath) {
+  try {
+    return fsSync.statSync(filePath);
+  } catch {
+    return null;
+  }
+}
+
+function toDocumentRange(document, offset, length) {
+  if (offset < 0 || length <= 0) return null;
+  const start = document.positionAt(offset);
+  const end = document.positionAt(offset + length);
+  return new vscode.Range(start, end);
 }
 
 function registerPasteProvider(context, log) {

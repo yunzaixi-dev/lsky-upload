@@ -116,6 +116,17 @@
           "default": "![]({{url}})",
           "description": "Fallback template when responseMarkdownPath is missing. Variables: {{url}}, {{filename}}."
         },
+        "lskyUpload.autoUploadPastedImages": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-upload local images inserted by the Markdown paste feature (e.g. ![alt](image.png))."
+        },
+        "lskyUpload.pastedImageMaxAgeMs": {
+          "type": "number",
+          "default": 15000,
+          "minimum": 1000,
+          "description": "Only auto-upload images whose mtime is within this window (milliseconds)."
+        },
         "lskyUpload.debug": {
           "type": "boolean",
           "default": false,
