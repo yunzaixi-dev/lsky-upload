@@ -111,6 +111,11 @@
           "type": "string",
           "default": "![]({{url}})",
           "description": "Fallback template when responseMarkdownPath is missing. Variables: {{url}}, {{filename}}."
+        },
+        "lskyUpload.debug": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable verbose logs in the 'Lsky Upload' output channel."
         }
       }
     }

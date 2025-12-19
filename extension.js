@@ -9,19 +9,19 @@ const https = require("https");
 const core = require("./core");
 
 function activate(context) {
-  const log = vscode.window.createOutputChannel("Lsky Upload");
-  log.appendLine("activated");
+  const log = createLogger();
+  log.info("activated");
 
   const safeRun = (label, fn) => {
     try {
       return fn();
     } catch (error) {
-      log.appendLine(`activation error (${label}): ${errorToMessage(error)}`);
+      log.info(`activation error (${label}): ${errorToMessage(error)}`);
       return undefined;
     }
   };
 
-  safeRun("registerPasteProvider", () => registerPasteProvider(context));
+  safeRun("registerPasteProvider", () => registerPasteProvider(context, log));
 
   const updateContextKey = () => {
     const config = vscode.workspace.getConfiguration("lskyUpload");
@@ -45,6 +45,7 @@ function activate(context) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand("lskyUpload.setToken", async () => {
+      log.debug("command: setToken");
       const token = await vscode.window.showInputBox({
         prompt: "Set Lsky token (stored in VS Code Secret Storage)",
         password: true,
@@ -60,6 +61,7 @@ function activate(context) {
     vscode.commands.registerCommand("lskyUpload.pasteImage", async () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor) return;
+      log.debug("command: pasteImage");
 
       const lang = editor.document.languageId;
       const isMarkdown = lang === "markdown" || lang === "mdx";
@@ -102,6 +104,7 @@ function activate(context) {
         }
 
         if (!uploadFilePath) {
+          log.debug("command: no image in clipboard; fallback to default paste");
           await vscode.commands.executeCommand(
             "editor.action.clipboardPasteAction",
           );
@@ -141,10 +144,12 @@ function activate(context) {
         await editor.edit((editBuilder) => {
           editBuilder.replace(editor.selection, markdown);
         });
+        log.debug("command: upload finished and inserted");
       } catch (error) {
         vscode.window.showErrorMessage(
           `Lsky Upload: ${errorToMessage(error)}`,
         );
+        log.info(`command error: ${errorToMessage(error)}`);
       } finally {
         if (clipboardImage?.cleanup) {
           try {
@@ -286,12 +291,17 @@ function looksLikeImageFile(filePath) {
   return [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"].includes(ext);
 }
 
-function registerPasteProvider(context) {
+function registerPasteProvider(context, log) {
   const register = vscode.languages?.registerDocumentPasteEditProvider;
-  if (typeof register !== "function") return;
+  if (typeof register !== "function") {
+    log.info("paste provider: not supported in this VS Code build");
+    return;
+  }
+  log.debug("paste provider: registering");
 
   const provider = {
     provideDocumentPasteEdits: async (document, ranges, dataTransfer) => {
+      log.debug("paste provider: invoked");
       const config = vscode.workspace.getConfiguration("lskyUpload");
       const enabled = !!config.get("enablePasteInterceptor", true);
       if (!enabled) return;
@@ -300,7 +310,10 @@ function registerPasteProvider(context) {
       if (!baseUrl) return;
 
       const image = await extractImageFromDataTransfer(dataTransfer);
-      if (!image) return;
+      if (!image) {
+        log.debug("paste provider: no image in dataTransfer");
+        return;
+      }
 
       const markdown = await vscode.window.withProgress(
         {
@@ -327,7 +340,7 @@ function registerPasteProvider(context) {
             ),
             fileBuffer: image.buffer,
             filenameHint: image.filename,
-          });
+            });
           return result.markdown;
         },
       );
@@ -577,6 +590,20 @@ function errorToMessage(error) {
   if (!error) return "unknown error";
   if (error instanceof Error) return error.message || String(error);
   return String(error);
+}
+
+function createLogger() {
+  const channel = vscode.window.createOutputChannel("Lsky Upload");
+
+  return {
+    info: (message) => channel.appendLine(String(message)),
+    debug: (message) => {
+      const config = vscode.workspace.getConfiguration("lskyUpload");
+      if (config.get("debug", false)) {
+        channel.appendLine(String(message));
+      }
+    },
+  };
 }
 
 exports.activate = activate;
